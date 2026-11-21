@@ -117,6 +117,7 @@ const clockDate = computed(() =>
     weekday: "short",
   }).format(now.value),
 );
+const defaultSurfaceOpacity = 30;
 function normalizeTheme(t: Config["theme"]) {
   const navigation = t.navigation === "left" ? "left" : "top";
   const icons = t.icons === "floating" || t.icons === "glass"
@@ -133,7 +134,7 @@ function normalizeTheme(t: Config["theme"]) {
     rowGap: t.rowGap ?? 0,
     columnGap: t.columnGap ?? 0,
     density: "standard",
-    overlayOpacity: t.overlayOpacity ?? t.opacity ?? 78,
+    overlayOpacity: t.overlayOpacity ?? defaultSurfaceOpacity,
     showClock: t.showClock ?? true,
   };
 }
@@ -751,7 +752,7 @@ onBeforeUnmount(() => {
       'is-settings': !!settings,
     }"
     :style="{
-      '--surface-opacity': (theme?.overlayOpacity ?? theme?.opacity ?? 78) / 100,
+      '--surface-opacity': (theme?.overlayOpacity ?? defaultSurfaceOpacity) / 100,
       '--icon-size': `${theme?.iconSize || 40}px`,
       '--site-row-gap': theme?.rowGap ? theme.rowGap + 'px' : undefined,
       '--site-column-gap': theme?.columnGap ? theme.columnGap + 'px' : undefined,
@@ -1119,7 +1120,7 @@ onBeforeUnmount(() => {
               }}</span>
             </button>
           </nav>
-          <div class="settings-content">
+          <div class="settings-content" :class="{ 'appearance-content': settings === 'theme' }">
             <h1>
               {{
                 nav.find((n) => n.id === settings)?.[

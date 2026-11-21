@@ -18,7 +18,7 @@ services:
 
 保存为 `compose.yaml`，执行 `docker compose up -d`，访问 `http://你的服务器:28189`。首次访问创建唯一管理员；密码至少12位，含大小写字母、数字和符号，最多72个UTF-8字节。没有默认密码、注册和多用户管理。首次初始化请在可信网络完成，公网使用HTTPS反向代理。
 
-支持 `linux/amd64` 和 `linux/arm64`。固定版本使用 `stylle/nest-panel:0.2.0`；`latest` 跟随稳定版。无需填写环境变量、数据库或第三方密钥。
+支持 `linux/amd64` 和 `linux/arm64`。固定版本使用 `stylle/nest-panel:0.2.1`；`latest` 跟随稳定版。无需填写环境变量、数据库或第三方密钥。
 
 镜像启动时自动准备普通宿主机挂载目录，然后降权为 UID 10001 运行，不需要额外初始化容器。NFS root-squash、只读挂载或手动指定非root `user:` 时仍须保证运行用户有写权限；不会递归修改其他目录权限。升级不要删除 `/data`。
 

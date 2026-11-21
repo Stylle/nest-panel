@@ -32,7 +32,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.2.0"
+const version = "0.2.1"
 
 //go:embed all:web
 var frontend embed.FS

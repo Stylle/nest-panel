@@ -583,7 +583,6 @@ footer button {
 }
 .settings-content {
   width: 100%;
-  max-width: 880px;
   min-width: 0;
   padding-bottom: 30px;
 }
@@ -2493,5 +2492,42 @@ footer button {
     padding-inline: 8px;
     white-space: normal;
     justify-content: flex-start;
+  }
+}
+
+.app .shell:has(.login-page) {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100dvh;
+}
+.app .login-page {
+  min-height: 0;
+  align-items: center;
+  padding: clamp(20px, 5vh, 64px) 0;
+}
+.app .login-panel {
+  width: min(100%, 432px);
+  margin: 0;
+  padding: clamp(20px, 4vw, 32px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+.app .login-panel > svg {
+  margin-bottom: 12px;
+}
+@media (min-width: 1360px) {
+  .app .appearance-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  .app .appearance-content > :is(h1, .sticky-save, .error) {
+    grid-column: 1 / -1;
+  }
+  .app .appearance-content > h1 {
+    margin-bottom: 0;
   }
 }
