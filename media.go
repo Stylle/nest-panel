@@ -505,6 +505,17 @@ type DockerCandidate struct {
 	Existing bool   `json:"existing"`
 }
 
+type dockerContainer struct {
+	Names  []string
+	State  string
+	Labels map[string]string
+	Ports  []struct {
+		IP                      string
+		PrivatePort, PublicPort int
+		Type                    string
+	}
+}
+
 func (a *App) docker(w http.ResponseWriter, r *http.Request) {
 	socket := os.Getenv("DOCKER_SOCKET")
 	if socket == "" {
@@ -526,16 +537,7 @@ func (a *App) docker(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, "Docker API unavailable")
 		return
 	}
-	var rows []struct {
-		Names  []string
-		State  string
-		Labels map[string]string
-		Ports  []struct {
-			IP                      string
-			PrivatePort, PublicPort int
-			Type                    string
-		}
-	}
+	var rows []dockerContainer
 	if e = json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&rows); e != nil {
 		fail(w, 502, "Invalid Docker response")
 		return
@@ -553,10 +555,14 @@ func (a *App) docker(w http.ResponseWriter, r *http.Request) {
 	known := map[string]bool{}
 	for _, g := range a.config.Groups {
 		for _, s := range g.Sites {
-			known[s.URL] = true
+			known[canonicalURL(s.URL)] = true
 		}
 	}
 	a.mu.RUnlock()
+	jsonOut(w, 200, dockerCandidates(rows, host, known))
+}
+
+func dockerCandidates(rows []dockerContainer, host string, known map[string]bool) []DockerCandidate {
 	out := []DockerCandidate{}
 	for _, row := range rows {
 		if len(row.Names) == 0 {
@@ -566,25 +572,36 @@ func (a *App) docker(w http.ResponseWriter, r *http.Request) {
 		if row.Labels["nest-panel.hide"] == "true" {
 			continue
 		}
+		title := row.Labels["nest-panel.title"]
+		if title == "" {
+			title = name
+		}
+		custom := row.Labels["nest-panel.url"]
+		if canonicalURL(custom) == "" {
+			custom = ""
+		}
+		// Docker may report separate IPv4 and IPv6 records for the same link.
+		seen := make(map[string]bool)
 		for _, p := range row.Ports {
-			if p.Type != "tcp" || p.PublicPort == 0 {
+			if p.Type != "tcp" || p.PublicPort <= 0 {
 				continue
 			}
-			u := "http://" + net.JoinHostPort(host, fmt.Sprint(p.PublicPort))
-			if custom := row.Labels["nest-panel.url"]; custom != "" {
-				if _, e := validURL(custom); e == nil {
-					u = custom
-				}
+			port := fmt.Sprint(p.PublicPort)
+			u := "http://" + net.JoinHostPort(host, port)
+			id := name + ":" + port
+			if custom != "" {
+				u, id = custom, name+":custom"
 			}
-			title := row.Labels["nest-panel.title"]
-			if title == "" {
-				title = name
+			key := canonicalURL(u)
+			if key == "" || seen[key] {
+				continue
 			}
-			out = append(out, DockerCandidate{ID: name + ":" + fmt.Sprint(p.PrivatePort), Name: title, URL: u, State: row.State, Existing: known[u]})
+			seen[key] = true
+			out = append(out, DockerCandidate{ID: id, Name: title, URL: u, State: row.State, Existing: known[key]})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	jsonOut(w, 200, out)
+	return out
 }
 
 // The importer only uses HTTP(S) links and embedded image data; never fetches untrusted import URLs.

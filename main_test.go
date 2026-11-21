@@ -440,3 +440,31 @@ func TestAppearanceCompatibilityAndImportVisibility(t *testing.T) {
 		t.Fatal("Sun-Panel visibility was not preserved")
 	}
 }
+
+func TestDockerDiscoveryDeduplicatesPublishedLinks(t *testing.T) {
+	var rows []dockerContainer
+	err := json.Unmarshal([]byte(`[
+		{"Names":["/app"],"Ports":[
+			{"IP":"0.0.0.0","PrivatePort":8080,"PublicPort":8010,"Type":"tcp"},
+			{"IP":"::","PrivatePort":8080,"PublicPort":8010,"Type":"tcp"},
+			{"IP":"::","PrivatePort":8080,"PublicPort":8020,"Type":"tcp"},
+			{"PrivatePort":8080,"PublicPort":8030,"Type":"udp"},
+			{"PrivatePort":8080,"Type":"tcp"}
+		]},
+		{"Names":["/custom"],"Labels":{"nest-panel.url":"https://app.example.com"},"Ports":[
+			{"PrivatePort":8080,"PublicPort":8040,"Type":"tcp"},
+			{"PrivatePort":9000,"PublicPort":8050,"Type":"tcp"}
+		]}
+	]`), &rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := map[string]bool{canonicalURL("http://nas.example.com:8010/"): true}
+	got := dockerCandidates(rows, "nas.example.com", known)
+	if len(got) != 3 ||
+		got[0].URL != "http://nas.example.com:8010" || !got[0].Existing ||
+		got[1].URL != "http://nas.example.com:8020" || got[1].Existing ||
+		got[0].ID == got[1].ID || got[2].URL != "https://app.example.com" {
+		t.Fatalf("unexpected candidates: %+v", got)
+	}
+}
