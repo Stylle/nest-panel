@@ -40,6 +40,11 @@ import {
 import type { Config, Site, Group, Candidate } from "./types";
 const failedIcons = ref(new Set<string>());
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+// getRandomValues is also available on LAN deployments served over HTTP.
+function newID() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 const lang = ref(localStorage.getItem("nest.lang") || "zh");
 const tr = (zh: string, en: string) => (lang.value === "zh" ? zh : en);
 const session = ref({ setup: false, authenticated: false, version: "" });
@@ -328,7 +333,7 @@ function changeSettings(page: string) {
 }
 function newSite(group?: string) {
   site.value = {
-    id: crypto.randomUUID(),
+    id: newID(),
     title: "",
     url: "",
     description: "",
@@ -402,7 +407,7 @@ async function saveGroup() {
       g.hidden = groupHidden.value;
     } else
       next.groups.push({
-        id: crypto.randomUUID(),
+        id: newID(),
         title: groupTitle.value,
         hidden: groupHidden.value,
         sites: [],
@@ -611,7 +616,7 @@ async function addDocker() {
     const next = clone(config.value!);
     let group = next.groups.find((x) => x.id === dockerGroup.value);
     if (!group) {
-      group = { id: crypto.randomUUID(), title: "Docker", sites: [] };
+      group = { id: newID(), title: "Docker", sites: [] };
       next.groups.push(group);
     }
     const seen = new Set(
@@ -622,7 +627,7 @@ async function addDocker() {
     )) {
       if (!seen.has(c.url.replace(/\/$/, ""))) {
         group.sites.push({
-          id: crypto.randomUUID(),
+          id: newID(),
           title: c.name,
           url: c.url,
           description: "",

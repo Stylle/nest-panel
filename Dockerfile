@@ -23,7 +23,7 @@ COPY docker-entrypoint.sh /app/entrypoint.sh
 COPY LICENSE README.md THIRD-PARTY-NOTICES.md /app/docs/
 COPY licenses/ /app/docs/licenses/
 RUN chmod 755 /app/entrypoint.sh
-LABEL org.opencontainers.image.title="Nest Panel" org.opencontainers.image.version="0.2.1" org.opencontainers.image.licenses="MIT" org.opencontainers.image.source="https://github.com/Stylle/nest-panel" org.opencontainers.image.description="Lightweight single-user navigation panel with portable icons, themes and Sun-Panel JSON import"
+LABEL org.opencontainers.image.title="Nest Panel" org.opencontainers.image.version="0.2.2" org.opencontainers.image.licenses="MIT" org.opencontainers.image.source="https://github.com/Stylle/nest-panel" org.opencontainers.image.description="Lightweight single-user navigation panel with portable icons, themes and Sun-Panel JSON import"
 ENV DATA_DIR=/data LISTEN_ADDR=:8080 GOMEMLIMIT=96MiB GOGC=75
 VOLUME ["/data"]
 EXPOSE 8080
