@@ -2531,3 +2531,101 @@ footer button {
     margin-bottom: 0;
   }
 }
+
+.app .color-mode-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.app .color-mode-control button {
+  width: 31px;
+  min-width: 31px;
+  height: 31px;
+  min-height: 31px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.app .color-mode-control button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.app .theme-presets .preset-preview {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  max-width: none;
+  min-height: 100px;
+  gap: 7px;
+  color: #f5fbff;
+  padding: 8px;
+}
+.app .preset-preview .preview-site {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 5px;
+  border-radius: 8px;
+  background: #ffffff20;
+  border: 1px solid #ffffff40;
+}
+.app .preset-preview .preview-site i {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  background: #437ed1;
+  border-radius: 7px;
+}
+.app .preset-preview .preview-site:nth-child(2) i { background: #7655c2; }
+.app .preset-preview .preview-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0;
+}
+.app .preset-preview .preview-copy b {
+  width: auto;
+  height: auto;
+  background: none;
+  font-size: 11px;
+}
+.app .preset-preview .preview-copy small {
+  color: #dceaf4;
+  font-size: 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app .preset-preview[data-preview="floating"] .preview-site {
+  border-color: transparent;
+  background: transparent;
+}
+.app .preset-preview[data-preview="floating"] small { display: none; }
+.app .preset-preview[data-preview="horizontal"] {
+  flex-direction: column;
+}
+.app .preset-preview[data-preview="horizontal"] .preview-site {
+  flex-direction: row;
+  justify-content: flex-start;
+}
+.app .theme-presets > button > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 600px) {
+  .app .topbar .top-actions {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}

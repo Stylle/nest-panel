@@ -32,7 +32,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.2.3"
+const version = "0.2.4"
 
 //go:embed all:web
 var frontend embed.FS
@@ -63,6 +63,8 @@ type Theme struct {
 	RowGap         int    `json:"rowGap,omitempty"`
 	ColumnGap      int    `json:"columnGap,omitempty"`
 	IconSize       int    `json:"iconSize,omitempty"`
+	LightOpacity   *int   `json:"lightOpacity,omitempty"`
+	DarkOpacity    *int   `json:"darkOpacity,omitempty"`
 	OverlayOpacity *int   `json:"overlayOpacity,omitempty"`
 	Mask           *int   `json:"mask,omitempty"`
 	ShowClock      *bool  `json:"showClock,omitempty"`
@@ -199,8 +201,10 @@ func validURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 func validateConfig(c Config) error {
-	if c.Theme.OverlayOpacity != nil && (*c.Theme.OverlayOpacity < 0 || *c.Theme.OverlayOpacity > 100) {
-		return errors.New("Invalid overlay opacity")
+	for _, opacity := range []*int{c.Theme.OverlayOpacity, c.Theme.LightOpacity, c.Theme.DarkOpacity} {
+		if opacity != nil && (*opacity < 0 || *opacity > 100) {
+			return errors.New("Invalid overlay opacity")
+		}
 	}
 	for _, gap := range []int{c.Theme.RowGap, c.Theme.ColumnGap} {
 		if gap != 0 && (gap < 4 || gap > 40) {

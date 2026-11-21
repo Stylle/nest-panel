@@ -26,6 +26,8 @@ export type Theme = {
   columnGap?: number;
   mask?: number;
   overlayOpacity?: number;
+  lightOpacity?: number;
+  darkOpacity?: number;
   showClock?: boolean;
 };
 export type Config = {

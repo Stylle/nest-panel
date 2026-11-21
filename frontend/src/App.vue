@@ -15,6 +15,8 @@ import {
   PhGearSix,
   PhGlobeHemisphereWest,
   PhSun,
+  PhMoon,
+  PhMonitor,
   PhTranslate,
   PhList,
   PhX,
@@ -122,6 +124,27 @@ const clockDate = computed(() =>
     weekday: "short",
   }).format(now.value),
 );
+type ColorMode = "light" | "dark" | "system";
+const colorModes = [
+  { id: "light", zh: "浅色", en: "Light", icon: PhSun },
+  { id: "dark", zh: "深色", en: "Dark", icon: PhMoon },
+  { id: "system", zh: "跟随系统", en: "System", icon: PhMonitor },
+] as const;
+const storedMode = localStorage.getItem("nest.color-mode");
+const colorMode = ref<ColorMode | null>(
+  storedMode === "light" || storedMode === "dark" || storedMode === "system" ? storedMode : null,
+);
+const systemTheme = matchMedia("(prefers-color-scheme: dark)");
+const systemDark = ref(systemTheme.matches);
+function updateSystemTheme(event: MediaQueryListEvent) {
+  systemDark.value = event.matches;
+}
+const selectedMode = computed(() => colorMode.value ?? (theme.value?.palette === "ivory" ? "light" : "dark"));
+const lightMode = computed(() => selectedMode.value === "system" ? !systemDark.value : selectedMode.value === "light");
+function setColorMode(mode: ColorMode) {
+  colorMode.value = mode;
+  localStorage.setItem("nest.color-mode", mode);
+}
 const defaultSurfaceOpacity = 30;
 function normalizeTheme(t: Config["theme"]) {
   const navigation = t.navigation === "left" ? "left" : "top";
@@ -139,10 +162,20 @@ function normalizeTheme(t: Config["theme"]) {
     rowGap: t.rowGap ?? 0,
     columnGap: t.columnGap ?? 0,
     density: "standard",
-    overlayOpacity: t.overlayOpacity ?? defaultSurfaceOpacity,
+    lightOpacity: t.lightOpacity ?? (t.palette === "ivory" ? t.overlayOpacity : undefined) ?? defaultSurfaceOpacity,
+    darkOpacity: t.darkOpacity ?? (t.palette !== "ivory" ? t.overlayOpacity : undefined) ?? defaultSurfaceOpacity,
     showClock: t.showClock ?? true,
   };
 }
+const surfaceOpacity = computed({
+  get: () => (lightMode.value ? theme.value?.lightOpacity : theme.value?.darkOpacity) ?? defaultSurfaceOpacity,
+  set: (value: number) => {
+    if (themeDraft.value) {
+      if (lightMode.value) themeDraft.value.lightOpacity = value;
+      else themeDraft.value.darkOpacity = value;
+    }
+  },
+});
 const siteStyle = computed(() => theme.value?.layout === "cards" ? "horizontal" : theme.value?.icons === "floating" ? "floating" : "glass");
 
 function selectCategory(id: string) {
@@ -730,6 +763,7 @@ watch(modal, (v) => (document.body.style.overflow = v ? "hidden" : ""));
 onMounted(() => {
   load();
   tickClock();
+  systemTheme.addEventListener("change", updateSystemTheme);
   document.addEventListener("visibilitychange", tickClock);
   document.addEventListener("keydown", keydown);
 });
@@ -737,6 +771,7 @@ onBeforeUnmount(() => {
   cancelled = true;
   clearTimeout(toastTimer);
   clearTimeout(clockTimer);
+  systemTheme.removeEventListener("change", updateSystemTheme);
   document.removeEventListener("visibilitychange", tickClock);
   document.removeEventListener("keydown", keydown);
 });
@@ -749,7 +784,7 @@ onBeforeUnmount(() => {
     :data-icons="theme?.icons || 'original'"
     :data-density="theme?.density || 'standard'"
     :data-site-style="siteStyle"
-    :data-mask-tone="theme?.palette === 'ivory' ? 'white' : 'black'"
+    :data-mask-tone="lightMode ? 'white' : 'black'"
     :data-navigation="theme?.navigation || 'top'"
     :data-surface="theme?.surface || 'glass'"
     :class="{
@@ -757,7 +792,7 @@ onBeforeUnmount(() => {
       'is-settings': !!settings,
     }"
     :style="{
-      '--surface-opacity': (theme?.overlayOpacity ?? defaultSurfaceOpacity) / 100,
+      '--surface-opacity': surfaceOpacity / 100,
       '--icon-size': `${theme?.iconSize || 40}px`,
       '--site-row-gap': theme?.rowGap ? theme.rowGap + 'px' : undefined,
       '--site-column-gap': theme?.columnGap ? theme.columnGap + 'px' : undefined,
@@ -803,6 +838,13 @@ onBeforeUnmount(() => {
           /><kbd>⌘ K</kbd>
         </div>
         <div class="top-actions">
+          <div class="color-mode-control" role="group" :aria-label="tr('显示模式', 'Color mode')">
+            <button v-for="mode in colorModes" :key="mode.id" type="button"
+              :aria-label="tr(mode.zh, mode.en)" :title="tr(mode.zh, mode.en)"
+              :aria-pressed="selectedMode === mode.id" @click="setColorMode(mode.id)">
+              <component :is="mode.icon" :size="17" />
+            </button>
+          </div>
           <button
             v-if="config && !settings && theme?.navigation === 'left'"
             class="icon-button category-toggle"
@@ -1321,8 +1363,13 @@ onBeforeUnmount(() => {
                     { id: 'horizontal', title: tr('横向卡片', 'Horizontal cards') },
                   ]" :key="choice.id" :aria-pressed="siteStyle === choice.id" :class="{ selected: siteStyle === choice.id }"
                     @click="themeDraft = normalizeTheme({ ...themeDraft, layout: choice.id === 'horizontal' ? 'cards' : 'grid', icons: choice.id === 'floating' ? 'floating' : 'glass' })">
-                    <span class="preset-preview" :data-preview="choice.id" aria-hidden="true"><span><b></b><b></b><b></b></span></span>
-                    <strong>{{ choice.title }}</strong>
+                    <span class="preset-preview" :data-preview="choice.id" aria-hidden="true">
+                      <span class="preview-site" v-for="sample in ['Docs', 'Home']" :key="sample">
+                        <i><component :is="sample === 'Docs' ? PhLink : PhHouseLine" :size="16" /></i>
+                        <span class="preview-copy"><b>{{ sample }}</b><small>{{ sample.toLowerCase() }}.example</small></span>
+                      </span>
+                    </span>
+                    <strong>{{ choice.title }} <PhCheck v-if="siteStyle === choice.id" :size="16" /></strong>
                   </button>
                 </div>
                 <h2 class="appearance-subheading">{{ tr("站点标签与间距", "Website tiles and spacing") }}</h2>
@@ -1341,15 +1388,10 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
                 <h2 class="appearance-subheading">{{ tr("遮罩底色", "Overlay color") }}</h2>
-                <div class="row wrap">
-                  <button v-for="tone in ['graphite', 'ivory']" :key="tone"
-                    :aria-pressed="themeDraft.palette === tone" @click="themeDraft.palette = tone">
-                    {{ tone === 'ivory' ? tr('白色', 'White') : tr('黑色', 'Black') }}
-                  </button>
-                </div>
                 <label class="range-label theme-clock">
-                  {{ tr("遮罩底色强度", "Surface opacity") }}<output>{{ themeDraft.overlayOpacity }}%</output>
-                  <input v-model.number="themeDraft.overlayOpacity" type="range" min="0" max="100" step="1" />
+                  {{ lightMode ? tr("浅色遮罩强度", "Light overlay opacity") : tr("深色遮罩强度", "Dark overlay opacity") }}
+                  <output>{{ surfaceOpacity }}%</output>
+                  <input v-model.number="surfaceOpacity" type="range" min="0" max="100" step="1" />
                 </label>
                 <label class="check theme-clock"><input type="checkbox" v-model="themeDraft.showClock" />
                   {{ tr("顶栏显示日期与时间", "Show date and time") }}
