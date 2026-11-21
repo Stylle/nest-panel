@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -266,6 +267,11 @@ func TestBackgroundSourceNeverLeaksAndSurvivesFullRestore(t *testing.T) {
 		t.Fatal(e)
 	}
 	cfg := a.config
+	id, err := a.putImage(imageData(t), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Theme.Background = id
 	cfg.Public = true
 	status(t, request(t, a, "PUT", "/api/panel", cfg, c), 200)
 	for _, p := range []string{"/api/panel", "/api/export"} {
@@ -300,8 +306,8 @@ func TestBackgroundSourceNeverLeaksAndSurvivesFullRestore(t *testing.T) {
 		t.Fatal("restore lost source")
 	}
 	status(t, request(t, a, "POST", "/api/background", map[string]any{"clear": true, "revision": a.config.Revision}, c), 200)
-	if a.backgroundSource != "" {
-		t.Fatal("source not cleared")
+	if a.backgroundSource != "" || a.config.Theme.Background != "" {
+		t.Fatal("API source and visible wallpaper must clear together")
 	}
 }
 
@@ -338,4 +344,99 @@ func TestLoginThrottle(t *testing.T) {
 		status(t, request(t, a, "POST", "/api/login", map[string]string{"username": "admin", "password": "bad"}, nil), 401)
 	}
 	status(t, request(t, a, "POST", "/api/login", map[string]string{"username": "admin", "password": "Example!Pass456"}, nil), 429)
+}
+
+func TestHiddenGroupsAreFilteredByServerAndIconAuthorization(t *testing.T) {
+	a := testApp(t)
+	c := setupCookie(t, a)
+	icon, e := a.putImage(imageData(t), false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cfg := a.config
+	cfg.Public = true
+	cfg.Groups = append(cfg.Groups, Group{ID: "hidden-group", Title: "Private group", Sites: []Site{{ID: "private-site", Title: "Private service", URL: "https://private.example.com", Icon: icon}}})
+	status(t, request(t, a, "PUT", "/api/panel", cfg, c), 200)
+	status(t, request(t, a, "GET", "/api/icons/"+icon, nil, nil), 200)
+	cfg = a.config
+	cfg.Groups[1].Hidden = true
+	status(t, request(t, a, "PUT", "/api/panel", cfg, c), 200)
+	public := request(t, a, "GET", "/api/panel", nil, nil)
+	status(t, public, 200)
+	for _, value := range []string{"Private group", "private.example.com", "hidden-group", icon} {
+		if strings.Contains(public.Body.String(), value) {
+			t.Fatalf("hidden information leaked: %s", value)
+		}
+	}
+	status(t, request(t, a, "GET", "/api/icons/"+icon, nil, nil), 404)
+	status(t, request(t, a, "GET", "/api/icons/"+icon, nil, c), 200)
+	admin := request(t, a, "GET", "/api/panel", nil, c)
+	if !strings.Contains(admin.Body.String(), "Private group") {
+		t.Fatal("admin lost private group")
+	}
+	r := httptest.NewRequest("GET", "/api/icons/"+icon, nil)
+	r.Header.Set("If-None-Match", `"`+icon+`"`)
+	w := httptest.NewRecorder()
+	a.handler().ServeHTTP(w, r)
+	status(t, w, 404)
+	bundle, e := a.bundle(false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !bundle.Config.Groups[1].Hidden {
+		t.Fatal("export lost privacy flag")
+	}
+	bundle.Config.Groups = append([]Group(nil), bundle.Config.Groups...)
+	bundle.Config.Groups[1].Hidden = false
+	status(t, request(t, a, "POST", "/api/import", map[string]any{"data": bundle, "mode": "merge", "revision": a.config.Revision}, c), 200)
+	if !a.config.Groups[1].Hidden {
+		t.Fatal("merge relaxed existing group privacy")
+	}
+	oversized := Bundle{App: "NestPanel", Version: 1, Config: defaultConfig(), Images: map[string]string{}}
+	oversized.Config.Groups = []Group{{ID: newID(), Title: a.config.Groups[0].Title, Hidden: true, Sites: []Site{}}}
+	for i := 0; i < 199; i++ {
+		oversized.Config.Groups = append(oversized.Config.Groups, Group{ID: newID(), Title: fmt.Sprintf("Import %d", i), Sites: []Site{}})
+	}
+	status(t, request(t, a, "POST", "/api/import", map[string]any{"data": oversized, "mode": "merge", "revision": a.config.Revision}, c), 400)
+	if a.config.Groups[0].Hidden {
+		t.Fatal("failed import mutated live privacy settings")
+	}
+	cfg = a.config
+	cfg.Groups[0].Hidden = true
+	status(t, request(t, a, "PUT", "/api/panel", cfg, c), 200)
+	var view Config
+	w = request(t, a, "GET", "/api/panel", nil, nil)
+	status(t, w, 200)
+	if json.Unmarshal(w.Body.Bytes(), &view) != nil || len(view.Groups) != 0 {
+		t.Fatal("hidden-only public panel leaked groups")
+	}
+}
+
+func TestAppearanceCompatibilityAndImportVisibility(t *testing.T) {
+	a := testApp(t)
+	c := setupCookie(t, a)
+	cfg := a.config
+	mask := 45
+	clock := true
+	cfg.Theme.Navigation = "left"
+	cfg.Theme.Surface = "glass"
+	cfg.Theme.IconSize = 48
+	cfg.Theme.Mask = &mask
+	cfg.Theme.ShowClock = &clock
+	cfg.Theme.Icons = "color"
+	status(t, request(t, a, "PUT", "/api/panel", cfg, c), 200)
+	b, e := a.bundle(true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if b.Config.Theme.Navigation != "left" || *b.Config.Theme.ShowClock != true {
+		t.Fatal("appearance backup lost fields")
+	}
+	invalid := a.config
+	invalid.Theme.Navigation = "unknown"
+	status(t, request(t, a, "PUT", "/api/panel", invalid, c), 400)
+	b, e = parseImport(json.RawMessage(`{"appName":"Sun-Panel-Config","version":1,"icons":[{"title":"Private","publicVisitHide":true,"children":[{"title":"Example","url":"https://example.com"}]}]}`))
+	if e != nil || !b.Config.Groups[0].Hidden {
+		t.Fatal("Sun-Panel visibility was not preserved")
+	}
 }

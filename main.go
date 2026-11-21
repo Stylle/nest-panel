@@ -32,7 +32,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 //go:embed all:web
 var frontend embed.FS
@@ -45,18 +45,27 @@ type Site struct {
 	Icon        string `json:"icon"`
 }
 type Group struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	Sites []Site `json:"sites"`
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Sites  []Site `json:"sites"`
+	Hidden bool   `json:"hidden"`
 }
 type Theme struct {
-	Palette    string `json:"palette"`
-	Layout     string `json:"layout"`
-	Icons      string `json:"icons"`
-	Density    string `json:"density"`
-	Background string `json:"background"`
-	Opacity    int    `json:"opacity"`
-	Blur       int    `json:"blur"`
+	Palette        string `json:"palette"`
+	Layout         string `json:"layout"`
+	Icons          string `json:"icons"`
+	Density        string `json:"density"`
+	Background     string `json:"background"`
+	Opacity        int    `json:"opacity"`
+	Blur           int    `json:"blur"`
+	Navigation     string `json:"navigation,omitempty"`
+	Surface        string `json:"surface,omitempty"`
+	RowGap         int    `json:"rowGap,omitempty"`
+	ColumnGap      int    `json:"columnGap,omitempty"`
+	IconSize       int    `json:"iconSize,omitempty"`
+	OverlayOpacity *int   `json:"overlayOpacity,omitempty"`
+	Mask           *int   `json:"mask,omitempty"`
+	ShowClock      *bool  `json:"showClock,omitempty"`
 }
 type Config struct {
 	Revision int64   `json:"revision"`
@@ -190,10 +199,21 @@ func validURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 func validateConfig(c Config) error {
+	if c.Theme.OverlayOpacity != nil && (*c.Theme.OverlayOpacity < 0 || *c.Theme.OverlayOpacity > 100) {
+		return errors.New("Invalid overlay opacity")
+	}
+	for _, gap := range []int{c.Theme.RowGap, c.Theme.ColumnGap} {
+		if gap != 0 && (gap < 4 || gap > 40) {
+			return errors.New("Invalid website grid spacing")
+		}
+	}
+	if (c.Theme.Navigation != "" && !oneOf(c.Theme.Navigation, "top", "left")) || (c.Theme.Surface != "" && !oneOf(c.Theme.Surface, "glass", "solid")) || (c.Theme.IconSize != 0 && (c.Theme.IconSize < 28 || c.Theme.IconSize > 64)) || (c.Theme.Mask != nil && (*c.Theme.Mask < 20 || *c.Theme.Mask > 80)) {
+		return errors.New("Invalid appearance settings")
+	}
 	if len(c.Name) == 0 || len(c.Name) > 100 || len(c.Groups) > 200 {
 		return errors.New("Invalid panel name or too many groups")
 	}
-	if !oneOf(c.Theme.Palette, "graphite", "ivory", "ocean", "system") || !oneOf(c.Theme.Layout, "cards", "grid") || !oneOf(c.Theme.Icons, "original", "tile") || !oneOf(c.Theme.Density, "compact", "standard", "relaxed") || c.Theme.Opacity < 25 || c.Theme.Opacity > 100 || c.Theme.Blur < 0 || c.Theme.Blur > 24 {
+	if !oneOf(c.Theme.Palette, "graphite", "ivory", "ocean", "system") || !oneOf(c.Theme.Layout, "cards", "grid") || !oneOf(c.Theme.Icons, "original", "tile", "color", "glass", "floating") || !oneOf(c.Theme.Density, "compact", "standard", "relaxed") || c.Theme.Opacity < 25 || c.Theme.Opacity > 100 || c.Theme.Blur < 0 || c.Theme.Blur > 24 {
 		return errors.New("Invalid theme settings")
 	}
 	ids := map[string]bool{}
@@ -299,7 +319,16 @@ func (a *App) handler() http.Handler {
 			fail(w, 401, "Login required")
 			return
 		}
-		jsonOut(w, 200, a.config)
+		view := a.config
+		if !auth {
+			view.Groups = make([]Group, 0, len(a.config.Groups))
+			for _, g := range a.config.Groups {
+				if !g.Hidden {
+					view.Groups = append(view.Groups, g)
+				}
+			}
+		}
+		jsonOut(w, 200, view)
 	})
 	mux.HandleFunc("PUT /api/panel", a.admin(a.saveConfig))
 	mux.HandleFunc("POST /api/password", a.admin(a.password))

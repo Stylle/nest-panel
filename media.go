@@ -381,6 +381,9 @@ func (a *App) icon(w http.ResponseWriter, r *http.Request) {
 	allowed := auth || a.config.Public
 	referenced := id == a.config.Theme.Background
 	for _, g := range a.config.Groups {
+		if !auth && g.Hidden {
+			continue
+		}
 		for _, s := range g.Sites {
 			if s.Icon == id {
 				referenced = true
@@ -399,7 +402,7 @@ func (a *App) icon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", mime)
-	w.Header().Set("Cache-Control", "private,max-age=3600")
+	w.Header().Set("Cache-Control", "private,no-cache")
 	w.Header().Set("ETag", `"`+id+`"`)
 	if r.Header.Get("If-None-Match") == `"`+id+`"` {
 		w.WriteHeader(304)
@@ -469,9 +472,8 @@ func (a *App) updateBackground(w http.ResponseWriter, r *http.Request) {
 	}
 	next := a.config
 	next.Revision++
-	if !v.Clear {
-		next.Theme.Background = id
-	}
+	// An empty ID clears the active background together with the API source.
+	next.Theme.Background = id
 	tx, e := a.db.Begin()
 	if e == nil {
 		defer tx.Rollback()

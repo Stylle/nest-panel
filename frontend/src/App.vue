@@ -15,7 +15,6 @@ import {
   PhGearSix,
   PhGlobeHemisphereWest,
   PhSun,
-  PhMoon,
   PhTranslate,
   PhList,
   PhX,
@@ -35,7 +34,6 @@ import {
   PhInfo,
   PhArrowLeft,
   PhTrash,
-  PhCards,
   PhSquaresFour,
   PhLink,
 } from "@phosphor-icons/vue";
@@ -44,7 +42,7 @@ const failedIcons = ref(new Set<string>());
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const lang = ref(localStorage.getItem("nest.lang") || "zh");
 const tr = (zh: string, en: string) => (lang.value === "zh" ? zh : en);
-const session = ref({ setup: false, authenticated: false, version: "0.1.0" });
+const session = ref({ setup: false, authenticated: false, version: "" });
 const config = ref<Config | null>(null);
 const loading = ref(true);
 const pending = ref(false);
@@ -76,6 +74,7 @@ const site = ref<Site>({
 const siteGroup = ref("");
 const groupTitle = ref("");
 const groupID = ref("");
+const groupHidden = ref(false);
 const fetching = ref(false);
 const importData = ref<any>(null);
 const preview = ref<any>(null);
@@ -91,21 +90,79 @@ const themeDraft = ref<Config["theme"] | null>(null);
 const autoFilling = ref(false);
 const progress = ref("");
 let cancelled = false;
-const systemDark = ref(matchMedia("(prefers-color-scheme: dark)").matches);
-const media = matchMedia("(prefers-color-scheme: dark)");
-const mediaChange = (e: MediaQueryListEvent) => (systemDark.value = e.matches);
 const theme = computed(() =>
   settings.value === "theme" && themeDraft.value
     ? themeDraft.value
     : config.value?.theme,
 );
-const palette = computed(() =>
-  theme.value?.palette === "system"
-    ? systemDark.value
-      ? "graphite"
-      : "ivory"
-    : theme.value?.palette || "graphite",
+const now = ref(new Date());
+let clockTimer: ReturnType<typeof setTimeout> | undefined;
+function tickClock() {
+  clearTimeout(clockTimer);
+  if (document.hidden) return;
+  now.value = new Date();
+  clockTimer = setTimeout(tickClock, 60000 - (Date.now() % 60000) + 30);
+}
+const clockTime = computed(() =>
+  new Intl.DateTimeFormat(lang.value === "zh" ? "zh-CN" : "en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(now.value),
 );
+const clockDate = computed(() =>
+  new Intl.DateTimeFormat(lang.value === "zh" ? "zh-CN" : "en-GB", {
+    month: "short",
+    day: "numeric",
+    weekday: "short",
+  }).format(now.value),
+);
+function normalizeTheme(t: Config["theme"]) {
+  const navigation = t.navigation === "left" ? "left" : "top";
+  const icons = t.icons === "floating" || t.icons === "glass"
+    ? t.icons
+    : navigation === "left" ? "floating" : "glass";
+  return {
+    ...t,
+    navigation,
+    palette: t.palette === "ivory" ? "ivory" : "graphite",
+    surface: "glass",
+    layout: t.layout === "cards" && t.icons === "glass" ? "cards" : "grid",
+    icons,
+    iconSize: t.iconSize || (icons === "floating" ? 48 : 44),
+    rowGap: t.rowGap ?? 0,
+    columnGap: t.columnGap ?? 0,
+    density: "standard",
+    overlayOpacity: t.overlayOpacity ?? t.opacity ?? 78,
+    showClock: t.showClock ?? true,
+  };
+}
+const siteStyle = computed(() => theme.value?.layout === "cards" ? "horizontal" : theme.value?.icons === "floating" ? "floating" : "glass");
+
+function selectCategory(id: string) {
+  if (active.value !== id) edit.value = false;
+  active.value = id;
+  menu.value = false;
+}
+function chooseCategory(event: Event) {
+  const select = event.target as HTMLSelectElement;
+  if (select.value) {
+    selectCategory(select.value);
+    const tab = document.getElementById("category-" + select.value);
+    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (!select.classList.contains("mobile-category-picker")) select.selectedIndex = 0;
+  }
+}
+
+function iconInitial(title: string) {
+  return Array.from(title.trim())[0]?.toLocaleUpperCase() || "↗";
+}
+function iconHue(id: string) {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const hues = [202, 225, 252, 278, 324, 349, 158, 179];
+  return hues[h % hues.length];
+}
 const visible = computed(() => {
   const q = query.value.trim().toLowerCase();
   return (config.value?.groups || [])
@@ -180,6 +237,12 @@ async function load() {
     if (!session.value.setup) {
       try {
         config.value = await api("panel");
+        config.value!.theme = normalizeTheme(config.value!.theme);
+        if (
+          active.value !== "all" &&
+          !config.value!.groups.some((g) => g.id === active.value)
+        )
+          active.value = "all";
         document.title = `${config.value!.name} · Nest Panel`;
       } catch (e) {
         if (session.value.authenticated) throw e;
@@ -205,6 +268,7 @@ async function login() {
 async function save(c: Config | null = config.value) {
   if (!c) return;
   config.value = await api("panel", "PUT", c);
+  config.value!.theme = normalizeTheme(config.value!.theme);
   document.title = `${config.value!.name} · Nest Panel`;
   notice(tr("已保存", "Saved"));
 }
@@ -238,7 +302,7 @@ function openSettings(page = "sites") {
   settings.value = page;
   menu.value = false;
   if (page === "theme") {
-    themeDraft.value = clone(config.value!.theme);
+    themeDraft.value = normalizeTheme(clone(config.value!.theme));
     api("background")
       .then((v) => (backgroundStatus.value = v))
       .catch((e) => (error.value = e.message));
@@ -325,17 +389,21 @@ async function saveSite() {
 function newGroup(g?: Group) {
   groupID.value = g?.id || "";
   groupTitle.value = g?.title || "";
+  groupHidden.value = !!g?.hidden;
   openModal("group");
 }
 async function saveGroup() {
   await run(async () => {
     const next = clone(config.value!);
     const g = next.groups.find((g) => g.id === groupID.value);
-    if (g) g.title = groupTitle.value;
-    else
+    if (g) {
+      g.title = groupTitle.value;
+      g.hidden = groupHidden.value;
+    } else
       next.groups.push({
         id: crypto.randomUUID(),
         title: groupTitle.value,
+        hidden: groupHidden.value,
         sites: [],
       });
     await save(next);
@@ -504,9 +572,9 @@ async function applyBackground(clear = false) {
     backgroundStatus.value = await api("background");
     notice(
       tr(
-        clear ? "已移除API来源，保留当前图片" : "API背景已获取并保存",
+        clear ? "已移除 API 背景与来源" : "API背景已获取并保存",
         clear
-          ? "API source removed; current image retained"
+          ? "API wallpaper and source removed"
           : "API background fetched and saved",
       ),
     );
@@ -655,13 +723,15 @@ watch(lang, (v) => {
 watch(modal, (v) => (document.body.style.overflow = v ? "hidden" : ""));
 onMounted(() => {
   load();
-  media.addEventListener("change", mediaChange);
+  tickClock();
+  document.addEventListener("visibilitychange", tickClock);
   document.addEventListener("keydown", keydown);
 });
 onBeforeUnmount(() => {
   cancelled = true;
   clearTimeout(toastTimer);
-  media.removeEventListener("change", mediaChange);
+  clearTimeout(clockTimer);
+  document.removeEventListener("visibilitychange", tickClock);
   document.removeEventListener("keydown", keydown);
 });
 </script>
@@ -669,13 +739,22 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="app"
-    :data-palette="palette"
     :data-layout="theme?.layout || 'cards'"
     :data-icons="theme?.icons || 'original'"
     :data-density="theme?.density || 'standard'"
-    :class="{ 'has-background': !!theme?.background }"
+    :data-site-style="siteStyle"
+    :data-mask-tone="theme?.palette === 'ivory' ? 'white' : 'black'"
+    :data-navigation="theme?.navigation || 'top'"
+    :data-surface="theme?.surface || 'glass'"
+    :class="{
+      'has-background': !!theme?.background,
+      'is-settings': !!settings,
+    }"
     :style="{
-      '--surface-opacity': (theme?.opacity || 94) / 100,
+      '--surface-opacity': (theme?.overlayOpacity ?? theme?.opacity ?? 78) / 100,
+      '--icon-size': `${theme?.iconSize || 40}px`,
+      '--site-row-gap': theme?.rowGap ? theme.rowGap + 'px' : undefined,
+      '--site-column-gap': theme?.columnGap ? theme.columnGap + 'px' : undefined,
       '--background-blur': `${theme?.blur || 0}px`,
     }"
   >
@@ -697,6 +776,14 @@ onBeforeUnmount(() => {
             config?.name || "栖页"
           }}</span></a
         >
+        <div
+          v-if="config && theme?.showClock !== false"
+          class="header-clock"
+          aria-label="Date and time"
+        >
+          <time :datetime="now.toISOString()">{{ clockTime }}</time
+          ><span>{{ clockDate }}</span>
+        </div>
         <div v-if="config && !settings" class="search">
           <PhMagnifyingGlass :size="19" /><input
             id="search"
@@ -709,10 +796,16 @@ onBeforeUnmount(() => {
             "
           /><kbd>⌘ K</kbd>
         </div>
-        <span v-if="settings" class="header-label">{{
-          nav.find((n) => n.id === settings)?.[lang === "zh" ? "zh" : "en"]
-        }}</span>
         <div class="top-actions">
+          <button
+            v-if="config && !settings && theme?.navigation === 'left'"
+            class="icon-button category-toggle"
+            @click="menu = !menu"
+            :aria-expanded="menu"
+            :title="tr('打开分类', 'Open categories')"
+          >
+            <PhList :size="21" />
+          </button>
           <button
             class="icon-button"
             @click="lang = lang === 'zh' ? 'en' : 'zh'"
@@ -722,28 +815,12 @@ onBeforeUnmount(() => {
               lang === "zh" ? "中" : "EN"
             }}</span></button
           ><button
-            v-if="session.authenticated && config"
-            class="icon-button"
-            @click="openSettings('theme')"
-            :title="tr('主题设置', 'Appearance')"
-          >
-            <PhMoon
-              v-if="palette === 'graphite' || palette === 'ocean'"
-              :size="20"
-            /><PhSun v-else :size="20" /></button
-          ><button
             v-if="session.authenticated && config && !settings"
             class="icon-button"
             @click="openSettings()"
             :title="tr('管理设置', 'Settings')"
           >
             <PhGearSix :size="21" /></button
-          ><button
-            v-if="config && session.authenticated && !settings"
-            class="primary add-top"
-            @click="newSite()"
-          >
-            <PhPlus :size="18" />{{ tr("添加网站", "Add website") }}</button
           ><button
             v-if="config && !session.authenticated"
             class="small"
@@ -821,65 +898,63 @@ onBeforeUnmount(() => {
       </main>
       <template v-else>
         <template v-if="!settings">
-          <nav class="group-nav">
+          <div class="category-bar" :class="{ 'is-side': theme?.navigation === 'left' }">
+          <nav
+            class="group-nav"
+            :class="{
+              'nav-left': theme?.navigation === 'left',
+              'is-open': menu,
+            }"
+            :aria-label="tr('网站分类', 'Website categories')"
+          >
             <button
-              class="mobile-menu icon-button"
-              @click="menu = !menu"
-              :title="tr('分组菜单', 'Groups')"
-            >
-              <PhList :size="22" /></button
-            ><button
+              class="category-select"
               :class="{ active: active === 'all' }"
-              @click="
-                active = 'all';
-                menu = false;
-              "
+              id="category-all"
+              @click="selectCategory('all')"
             >
-              {{ tr("全部网站", "All websites") }}</button
-            ><button
+              <PhSquaresFour
+                v-if="theme?.navigation === 'left'"
+                :size="19"
+              /><span>{{ tr("全部网站", "All websites") }}</span>
+            </button>
+            <button
               v-for="g in config.groups"
               :key="g.id"
+              class="category-select"
               :class="{ active: active === g.id }"
-              @click="
-                active = g.id;
-                menu = false;
-              "
+              :id="'category-' + g.id"
+              @click="selectCategory(g.id)"
             >
-              {{ g.title }}
-            </button>
-            <div class="nav-spacer"></div>
-            <button
-              v-if="session.authenticated"
-              class="edit-button"
-              :class="{ active: edit }"
-              @click="edit = !edit"
-            >
-              <PhCheck v-if="edit" :size="16" /><PhPencilSimple
-                v-else
-                :size="16"
-              />{{ edit ? tr("完成整理", "Done") : tr("整理", "Organize") }}
+              <PhFolderSimple
+                v-if="theme?.navigation === 'left'"
+                :size="19"
+              /><span>{{ g.title }}</span
+              ><PhLockKey
+                v-if="g.hidden"
+                :size="13"
+                :title="tr('访客不可见', 'Hidden from visitors')"
+              />
             </button>
           </nav>
-          <div v-if="menu" class="mobile-backdrop" @click="menu = false"></div>
-          <aside v-if="menu" class="mobile-groups">
-            <button
-              @click="
-                active = 'all';
-                menu = false;
-              "
-            >
-              {{ tr("全部网站", "All websites") }}</button
-            ><button
-              v-for="g in config.groups"
-              :key="g.id"
-              @click="
-                active = g.id;
-                menu = false;
-              "
-            >
-              {{ g.title }}
-            </button>
-          </aside>
+            <select v-if="theme?.navigation !== 'left' && config.groups.length"
+              class="category-picker" :aria-label="tr('选择分组', 'Choose group')" @change="chooseCategory">
+              <option value="">{{ tr("更多", "More") }}</option>
+              <option value="all">{{ tr("全部网站", "All websites") }}</option>
+              <option v-for="g in config.groups" :key="g.id" :value="g.id">{{ g.title }}</option>
+            </select>
+            <select v-if="theme?.navigation !== 'left' && config.groups.length"
+              class="mobile-category-picker" :aria-label="tr('选择分组', 'Choose group')"
+              :value="active" @change="chooseCategory">
+              <option value="all">{{ tr("全部网站", "All websites") }}</option>
+              <option v-for="g in config.groups" :key="g.id" :value="g.id">{{ g.title }}</option>
+            </select>
+          </div>
+          <div
+            v-if="menu && theme?.navigation === 'left'"
+            class="category-backdrop"
+            @click="menu = false"
+          ></div>
           <main class="board">
             <div class="mobile-search search">
               <PhMagnifyingGlass :size="19" /><input
@@ -891,23 +966,42 @@ onBeforeUnmount(() => {
             <p v-if="edit" class="edit-hint">
               {{
                 tr(
-                  "拖动卡片调整顺序或移到其他分组；手机长按拖动。",
-                  "Drag cards to reorder or move between groups; long press on touch devices.",
+                  "拖动卡片调整顺序，手机长按拖动。编辑网站可更改所属分组。",
+                  "Drag cards to reorder; long press on touch devices. Edit a website to change its group.",
                 )
               }}
             </p>
             <section v-for="g in visible" :key="g.id" class="website-group">
               <div class="section-heading">
-                <h2><PhFolderSimple :size="22" />{{ g.title }}</h2>
-                <div v-if="edit" class="row">
+                <h2>
+                  <PhFolderSimple :size="22" />{{ g.title
+                  }}<span v-if="g.hidden" class="private-badge"
+                    ><PhLockKey :size="12" />{{
+                      tr("仅登录可见", "Private")
+                    }}</span
+                  >
+                </h2>
+                <div v-if="session.authenticated" class="row">
+                  <button
+                    class="icon-button section-organize"
+                    :aria-label="edit && active === g.id ? tr('完成整理', 'Done') : tr('整理', 'Organize') + ' · ' + g.title"
+                    :title="edit && active === g.id ? tr('完成整理', 'Done') : tr('整理', 'Organize')"
+                    @click="edit = !(edit && active === g.id); active = g.id"
+                  >
+                    <PhCheck v-if="edit && active === g.id" :size="16" />
+                    <PhPencilSimple v-else :size="16" />
+                  </button>
+                  <template v-if="edit">
                   <button
                     class="icon-button"
                     @click="newGroup(config.groups.find((x) => x.id === g.id))"
                     :title="tr('编辑分组', 'Edit group')"
                   >
                     <PhPencilSimple :size="17" /></button
-                  ><button
-                    class="icon-button"
+                  >
+                  </template>
+                  <button
+                    class="icon-button section-organize"
                     @click="newSite(g.id)"
                     :title="tr('添加网站', 'Add website')"
                   >
@@ -943,7 +1037,9 @@ onBeforeUnmount(() => {
                       rel="noopener noreferrer"
                       :tabindex="edit ? -1 : 0"
                       @click="edit && $event.preventDefault()"
-                      ><span class="site-icon"
+                      ><span
+                        class="site-icon"
+                        :style="{ '--icon-hue': iconHue(s.id) }"
                         ><img
                           v-if="s.icon && !failedIcons.has(s.icon)"
                           :src="iconURL(s.icon)"
@@ -954,10 +1050,9 @@ onBeforeUnmount(() => {
                           decoding="async"
                           @error="
                             failedIcons.add(s.icon)
-                          " /><PhGlobeHemisphereWest
-                          v-else
-                          :size="34"
-                          weight="duotone" /></span
+                          " /><span v-else class="icon-initial" aria-hidden="true">{{
+                          iconInitial(s.title)
+                        }}</span></span
                       ><span class="site-copy"
                         ><strong>{{ s.title }}</strong
                         ><small>{{ domain(s.url) }}</small></span
@@ -1000,8 +1095,9 @@ onBeforeUnmount(() => {
             </button>
           </main>
           <footer>
-            <span>Nest Panel</span><span>MIT License</span
-            ><button
+            <span>Nest Panel</span><span>MIT License</span>
+            <span v-if="session.version" class="footer-version">v{{ session.version }}</span>
+            <button
               v-if="session.authenticated"
               @click="logout"
               :title="tr('退出登录', 'Sign out')"
@@ -1203,115 +1299,59 @@ onBeforeUnmount(() => {
             ></template>
             <template v-if="settings === 'theme' && themeDraft"
               ><div class="setting-card">
-                <h2>{{ tr("配色主题", "Color theme") }}</h2>
-                <div class="theme-options">
-                  <button
-                    v-for="p in [
-                      { id: 'graphite', zh: '石墨', en: 'Graphite' },
-                      { id: 'ivory', zh: '暖白', en: 'Ivory' },
-                      { id: 'ocean', zh: '深海', en: 'Ocean' },
-                      { id: 'system', zh: '跟随系统', en: 'System' },
-                    ]"
-                    :key="p.id"
-                    :class="{ selected: themeDraft.palette === p.id }"
-                    @click="themeDraft.palette = p.id"
-                  >
-                    <span class="palette-swatch" :data-swatch="p.id"></span
-                    >{{ lang === "zh" ? p.zh : p.en
-                    }}<PhCheck v-if="themeDraft.palette === p.id" :size="17" />
+                <h2>{{ tr("分类位置", "Category position") }}</h2>
+                <div class="row wrap">
+                  <button v-for="position in ['top', 'left']" :key="position"
+                    :aria-pressed="themeDraft.navigation === position"
+                    @click="themeDraft.navigation = position">
+                    {{ position === 'top' ? tr('顶部分类', 'Top categories') : tr('左侧分类', 'Side categories') }}
                   </button>
                 </div>
+                <h2 class="appearance-subheading">{{ tr("站点样式", "Website style") }}</h2>
+                <div class="choice-grid theme-presets">
+                  <button v-for="choice in [
+                    { id: 'glass', title: tr('玻璃卡片', 'Glass cards') },
+                    { id: 'floating', title: tr('悬浮图标', 'Floating icons') },
+                    { id: 'horizontal', title: tr('横向卡片', 'Horizontal cards') },
+                  ]" :key="choice.id" :aria-pressed="siteStyle === choice.id" :class="{ selected: siteStyle === choice.id }"
+                    @click="themeDraft = normalizeTheme({ ...themeDraft, layout: choice.id === 'horizontal' ? 'cards' : 'grid', icons: choice.id === 'floating' ? 'floating' : 'glass' })">
+                    <span class="preset-preview" :data-preview="choice.id" aria-hidden="true"><span><b></b><b></b><b></b></span></span>
+                    <strong>{{ choice.title }}</strong>
+                  </button>
+                </div>
+                <h2 class="appearance-subheading">{{ tr("站点标签与间距", "Website tiles and spacing") }}</h2>
+                <div class="spacing-controls">
+                  <label class="range-label">
+                    {{ tr("站点标签大小", "Website tile size") }}<output>{{ Math.round((themeDraft.iconSize ?? 44) / 44 * 100) }}%</output>
+                    <input v-model.number="themeDraft.iconSize" type="range" min="28" max="64" step="1" />
+                  </label>
+                  <label class="range-label">
+                    {{ tr("行间距", "Row gap") }}<output>{{ themeDraft.rowGap || tr('自动', 'Auto') }}{{ themeDraft.rowGap ? 'px' : '' }}</output>
+                    <input v-model.number="themeDraft.rowGap" type="range" min="0" max="40" step="4" />
+                  </label>
+                  <label class="range-label">
+                    {{ tr("列间距", "Column gap") }}<output>{{ themeDraft.columnGap || tr('自动', 'Auto') }}{{ themeDraft.columnGap ? 'px' : '' }}</output>
+                    <input v-model.number="themeDraft.columnGap" type="range" min="0" max="40" step="4" />
+                  </label>
+                </div>
+                <h2 class="appearance-subheading">{{ tr("遮罩底色", "Overlay color") }}</h2>
+                <div class="row wrap">
+                  <button v-for="tone in ['graphite', 'ivory']" :key="tone"
+                    :aria-pressed="themeDraft.palette === tone" @click="themeDraft.palette = tone">
+                    {{ tone === 'ivory' ? tr('白色', 'White') : tr('黑色', 'Black') }}
+                  </button>
+                </div>
+                <label class="range-label theme-clock">
+                  {{ tr("遮罩底色强度", "Surface opacity") }}<output>{{ themeDraft.overlayOpacity }}%</output>
+                  <input v-model.number="themeDraft.overlayOpacity" type="range" min="0" max="100" step="1" />
+                </label>
+                <label class="check theme-clock"><input type="checkbox" v-model="themeDraft.showClock" />
+                  {{ tr("顶栏显示日期与时间", "Show date and time") }}
+                </label>
               </div>
               <div class="setting-card">
-                <h2>{{ tr("网站布局", "Website layout") }}</h2>
-                <div class="choice-grid">
-                  <button
-                    :class="{ selected: themeDraft.layout === 'cards' }"
-                    @click="themeDraft.layout = 'cards'"
-                  >
-                    <PhCards :size="32" /><strong>{{
-                      tr("横向卡片", "Horizontal cards")
-                    }}</strong
-                    ><small>{{
-                      tr(
-                        "图标、名称和域名横向排列",
-                        "Icon, title and domain in a row",
-                      )
-                    }}</small></button
-                  ><button
-                    :class="{ selected: themeDraft.layout === 'grid' }"
-                    @click="themeDraft.layout = 'grid'"
-                  >
-                    <PhSquaresFour :size="32" /><strong>{{
-                      tr("图标网格", "Icon grid")
-                    }}</strong
-                    ><small>{{
-                      tr(
-                        "图标居上，名称和域名居下",
-                        "Icon above title and domain",
-                      )
-                    }}</small>
-                  </button>
-                </div>
-                <h3>{{ tr("图标样式", "Icon style") }}</h3>
-                <div class="segmented">
-                  <button
-                    :class="{ selected: themeDraft.icons === 'original' }"
-                    @click="themeDraft.icons = 'original'"
-                  >
-                    {{ tr("原始图标", "Original") }}</button
-                  ><button
-                    :class="{ selected: themeDraft.icons === 'tile' }"
-                    @click="themeDraft.icons = 'tile'"
-                  >
-                    {{ tr("圆角底板", "Rounded tile") }}
-                  </button>
-                </div>
-                <h3>{{ tr("排列密度", "Density") }}</h3>
-                <div class="segmented">
-                  <button
-                    v-for="d in [
-                      { id: 'compact', zh: '紧凑', en: 'Compact' },
-                      { id: 'standard', zh: '标准', en: 'Standard' },
-                      { id: 'relaxed', zh: '宽松', en: 'Relaxed' },
-                    ]"
-                    :key="d.id"
-                    :class="{ selected: themeDraft.density === d.id }"
-                    @click="themeDraft.density = d.id"
-                  >
-                    {{ lang === "zh" ? d.zh : d.en }}
-                  </button>
-                </div>
-                <div
-                  class="appearance-preview"
-                  :data-layout="themeDraft.layout"
-                >
-                  <div class="site-card">
-                    <a
-                      ><span class="site-icon"
-                        ><PhGlobeHemisphereWest
-                          :size="34"
-                          weight="duotone" /></span
-                      ><span class="site-copy"
-                        ><strong>{{ tr("示例网站", "Example website") }}</strong
-                        ><small>example.com</small></span
-                      ></a
-                    >
-                  </div>
-                  <div class="site-card">
-                    <a
-                      ><span class="site-icon"
-                        ><PhHouseLine :size="34" weight="duotone" /></span
-                      ><span class="site-copy"
-                        ><strong>{{ tr("我的服务", "My service") }}</strong
-                        ><small>home.example.com</small></span
-                      ></a
-                    >
-                  </div>
-                </div>
-              </div>
-              <div class="setting-card">
-                <h2>{{ tr("背景图片", "Background image") }}</h2>
+                <h2>{{ tr("壁纸", "Wallpaper") }}</h2>
+                <h3>{{ tr("背景图片", "Background image") }}</h3>
                 <p>
                   {{
                     tr(
@@ -1382,18 +1422,10 @@ onBeforeUnmount(() => {
                     @click="applyBackground(true)"
                     :disabled="pending"
                   >
-                    {{ tr("移除API来源", "Remove API source") }}
+                    {{ tr("移除 API 背景", "Remove API wallpaper") }}
                   </button>
                 </div>
                 <label class="range-label"
-                  >{{ tr("卡片不透明度", "Card opacity")
-                  }}<output>{{ themeDraft.opacity }}%</output
-                  ><input
-                    type="range"
-                    v-model.number="themeDraft.opacity"
-                    min="25"
-                    max="100" /></label
-                ><label class="range-label"
                   >{{ tr("背景模糊", "Background blur")
                   }}<output>{{ themeDraft.blur }}px</output
                   ><input
@@ -1442,8 +1474,8 @@ onBeforeUnmount(() => {
                 <p>
                   {{
                     tr(
-                      "开启后，未登录访客可以查看全部网站和分组。设置、备份和容器信息仍需管理员登录。",
-                      "When enabled, visitors can view every website and group. Settings, backups and Docker discovery remain administrator-only.",
+                      "开启后，访客只能查看未隐藏的分组及网站。可在分组编辑中设置公开访问隐藏；设置、备份和容器信息仍需登录。",
+                      "Visitors only see groups that are not hidden. Edit a group to hide it from public access. Settings, backups and Docker discovery remain administrator-only.",
                     )
                   }}
                 </p>
@@ -1819,8 +1851,23 @@ onBeforeUnmount(() => {
           <form v-else-if="modal === 'group'" @submit.prevent="saveGroup">
             <label
               >{{ tr("分组名称", "Group name")
-              }}<input v-model="groupTitle" required maxlength="50"
-            /></label>
+              }}<input v-model="groupTitle" required maxlength="50" /></label
+            ><label class="checkbox-row"
+              ><input type="checkbox" v-model="groupHidden" /><span>{{
+                tr(
+                  "公开访问时隐藏此分组",
+                  "Hide this group from public visitors",
+                )
+              }}</span></label
+            >
+            <p>
+              {{
+                tr(
+                  "只有管理员登录后可见。访客接口不会返回该分组、网址及专属图标。",
+                  "Only visible after administrator sign-in. Visitor APIs exclude the group, links and exclusive icons.",
+                )
+              }}
+            </p>
             <p v-if="error" class="error">{{ error }}</p>
             <div class="modal-actions">
               <button type="button" @click="closeModal" :disabled="pending">

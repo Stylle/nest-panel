@@ -105,9 +105,10 @@ func parseImport(raw json.RawMessage) (Bundle, error) {
 	}
 	var sun struct {
 		Icons []struct {
-			Title    string
-			Sort     int
-			Children []struct {
+			Title           string
+			Sort            int
+			PublicVisitHide bool
+			Children        []struct {
 				Title, URL, LanURL, Description string
 				Sort                            int
 				CardType                        int
@@ -126,7 +127,7 @@ func parseImport(raw json.RawMessage) (Bundle, error) {
 	sort.SliceStable(sun.Icons, func(i, j int) bool { return sun.Icons[i].Sort < sun.Icons[j].Sort })
 	skipped, missing := 0, 0
 	for _, g := range sun.Icons {
-		group := Group{ID: newID(), Title: g.Title, Sites: []Site{}}
+		group := Group{ID: newID(), Title: g.Title, Hidden: g.PublicVisitHide, Sites: []Site{}}
 		if group.Title == "" {
 			group.Title = "导入分组"
 		}
@@ -282,7 +283,13 @@ func (a *App) importConfig(w http.ResponseWriter, r *http.Request) {
 	next.Public = a.config.Public
 	next.Revision = a.config.Revision + 1
 	if v.Mode == "merge" {
-		next = a.config
+		// Detach nested slices before applying an import so validation/transaction failure cannot mutate live state.
+		snapshot, _ := json.Marshal(a.config)
+		next = Config{}
+		if e = json.Unmarshal(snapshot, &next); e != nil {
+			fail(w, 500, "Cannot prepare import")
+			return
+		}
 		next.Revision++
 		seen := map[string]bool{}
 		for _, g := range next.Groups {
@@ -299,9 +306,10 @@ func (a *App) importConfig(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if idx < 0 {
-				next.Groups = append(next.Groups, Group{ID: newID(), Title: g.Title, Sites: []Site{}})
+				next.Groups = append(next.Groups, Group{ID: newID(), Title: g.Title, Hidden: g.Hidden, Sites: []Site{}})
 				idx = len(next.Groups) - 1
 			}
+			next.Groups[idx].Hidden = next.Groups[idx].Hidden || g.Hidden
 			for _, s := range g.Sites {
 				key := canonicalURL(s.URL)
 				if !seen[key] {

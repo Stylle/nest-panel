@@ -1,6 +1,6 @@
 # Design QA — 0.1.0
 
-Target: the selected graphite horizontal-card concept and warm-ivory icon-grid concept, combined with independently selectable palette, layout and icon presentation. Reference canvases were normalized to 1440 × 1024 for comparison. The horizontal group index from the graphite concept is intentionally shared by both layouts; the ivory concept's additional sidebar is not duplicated.
+Target: the selected graphite horizontal-card concept and warm-ivory icon-grid concept, combined with independently selectable palette, layout and icon presentation. Reference canvases were normalized to 1440 × 1024 for comparison. The 0.1.0 release offered only the top category bar. The local 0.2.0 development build adds a left category sidebar independently of card layout, a clock, and per-category organize buttons. In-app browser checks covered switching between category positions, entering and leaving group organization, and confirming horizontal category scrolling without page overflow at 390px.
 
 ## Iterations
 

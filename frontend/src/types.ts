@@ -5,7 +5,12 @@ export type Site = {
   description: string;
   icon: string;
 };
-export type Group = { id: string; title: string; sites: Site[] };
+export type Group = {
+  id: string;
+  title: string;
+  sites: Site[];
+  hidden?: boolean;
+};
 export type Theme = {
   palette: string;
   layout: string;
@@ -14,6 +19,14 @@ export type Theme = {
   background: string;
   opacity: number;
   blur: number;
+  navigation?: string;
+  surface?: string;
+  iconSize?: number;
+  rowGap?: number;
+  columnGap?: number;
+  mask?: number;
+  overlayOpacity?: number;
+  showClock?: boolean;
 };
 export type Config = {
   revision: number;
