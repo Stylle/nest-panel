@@ -1,0 +1,9 @@
+/web/*
+!/web/.keep
+/frontend/node_modules/
+/frontend/dist/
+*.exe
+*.db*
+/data/
+.env
+*.log

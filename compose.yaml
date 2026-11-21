@@ -1,0 +1,11 @@
+services:
+  nest-panel:
+    image: stylle/nest-panel:latest
+    container_name: nest-panel
+    restart: unless-stopped
+    ports:
+      - "28189:8080"
+    volumes:
+      - ./data:/data
+      # Optional: enable local Docker discovery. The application only reads container metadata.
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
